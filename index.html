@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ritual Bar Fusion - Menú Digital</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Cropper.js (Para recortar imágenes) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+    <!-- Configuración de Tailwind usando Variables CSS para Temas Dinámicos -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        ritual: {
+                            bg: 'var(--color-bg)',      
+                            card: 'var(--color-card)',   
+                            accent: 'var(--color-accent)', 
+                            text: 'var(--color-text)',   
+                            muted: 'var(--color-muted)' 
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Helvetica', 'Arial', 'sans-serif'],
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'fadeIn': 'fadeIn 0.5s ease-out forwards',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        /* Variables por defecto (Ritual Original) - Se sobrescriben por JS */
+        :root {
+            --color-bg: #1A1410;
+            --color-card: #2A211D;
+            --color-accent: #C86E36;
+            --color-text: #E5D3B3;
+            --color-muted: #8C7A6B;
+        }
+
+        body::-webkit-scrollbar { width: 8px; }
+        body::-webkit-scrollbar-track { background: var(--color-bg); }
+        body::-webkit-scrollbar-thumb { background-color: var(--color-card); border-radius: 20px; border: 1px solid var(--color-accent); }
+        
+        .fade-enter { opacity: 0; transform: translateY(-10px); }
+        .fade-enter-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; }
+
+        /* Estilos para el Cropper */
+        .cropper-container { max-height: 400px; }
+    </style>
+</head>
+<body class="bg-ritual-bg text-ritual-text min-h-screen transition-colors duration-700 ease-in-out">
+    <div id="root"></div>
+
+    <!-- Firebase SDKs (Modular) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // --- 1. CONFIGURACIÓN DE FIREBASE (PERSONALIZADA) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyD09IAtbRQfi92vjdWbutkhKVF2xEOdCPk",
+            authDomain: "ritual-e9691.firebaseapp.com",
+            projectId: "ritual-e9691",
+            storageBucket: "ritual-e9691.firebasestorage.app",
+            messagingSenderId: "492954734206",
+            appId: "1:492954734206:web:12c5680eb0a3c85db3d22f"
+        };
+        
+        // Identificador interno para organizar la DB
+        const appId = 'ritual-bar-app';
+        
+        let app, db, auth;
+        let isDemoMode = true;
+
+        const initFirebase = async () => {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                isDemoMode = false;
+                console.log("Firebase conectado (Proyecto: ritual-e9691).");
+
+                // Autenticación Anónima
+                // Asegúrate de habilitar "Anonymous" en Authentication > Sign-in method en tu consola
+                await signInAnonymously(auth);
+            } catch (e) {
+                console.error("Error crítico inicializando Firebase:", e);
+                isDemoMode = true;
+            }
+        };
+
+        // --- 2. DATOS SEMILLA (COMPLETOS CON NUEVAS CATEGORÍAS) ---
+        const seedData = {
+            theme: 'ritual',
+            categories: [
+                {
+                    id: 'para-picar',
+                    name: 'Para Picar',
+                    icon: 'UtensilsCrossed',
+                    visible: true,
+                    items: [
+                        { name: 'Tequeños de Queso', desc: 'Clásicos de queso', price: 6 },
+                        { name: 'Tequeños de Tajada', desc: 'Con queso', price: 6 },
+                        { name: 'Tequeños Queso y Tocineta', desc: 'Sabor ahumado', price: 7 },
+                        { name: 'Tequeños Tomate y Orégano', desc: 'Estilo pizza', price: 6 },
+                        { name: 'Tequeño Queso y Chistorra', desc: 'Intenso sabor', price: 7 },
+                        { name: 'Camarones Crispy', desc: 'Crujientes y dorados', price: 12 },
+                        { name: 'Camarones al Ajillo', desc: 'Salteados al ajillo', price: 14 },
+                        { name: 'Ceviche de Pescado', desc: 'Fresco y cítrico', price: 15 },
+                        { name: 'Ceviche Mixto', desc: 'Pescado y mariscos', price: 18 },
+                        { name: 'Tartar de Atún', desc: 'Fresco atún picado', price: 15 },
+                        { name: 'Tartar de Salmón', desc: 'Salmón fresco', price: 17 }
+                    ]
+                },
+                {
+                    id: 'sushi',
+                    name: 'Sushi Rolls',
+                    icon: 'Fish',
+                    visible: true,
+                    items: [
+                        { name: 'Salmon Roll', desc: 'Sushi roll clásico', price: 19 },
+                        { name: 'Miami Roll', desc: 'Favorito de la casa', price: 12 },
+                        { name: 'Alaska Roll Especial', desc: 'Salmón y queso crema', price: 17 },
+                        { name: 'Sensei Roll', desc: 'Roll premium', price: 19 },
+                        { name: 'Dragon Roll', desc: 'Con anguila y aguacate', price: 12 },
+                        { name: 'Tiger Roll', desc: 'Tempurizado', price: 14 }
+                    ]
+                },
+                {
+                    id: 'hamburguesas',
+                    name: 'Hamburguesas',
+                    icon: 'Sandwich',
+                    visible: false,
+                    items: [
+                        { name: 'Ritual Burger', desc: 'Carne angus, queso cheddar, tocineta, cebolla caramelizada', price: 12 },
+                        { name: 'Chicken Crispy', desc: 'Pollo crujiente, ensalada coleslaw, salsa tártara', price: 10 },
+                        { name: 'Veggie Power', desc: 'Medallón de lentejas y champiñones, aguacate', price: 11 }
+                    ]
+                },
+                {
+                    id: 'pizzas',
+                    name: 'Pizzas Artesanales',
+                    icon: 'Pizza',
+                    visible: false,
+                    items: [
+                        { name: 'Margarita', desc: 'Salsa napolitana, mozzarella fresca, albahaca', price: 10 },
+                        { name: 'Pepperoni', desc: 'Salsa, mozzarella, pepperoni americano', price: 12 },
+                        { name: 'Ritual Suprema', desc: 'Jamón serrano, rúcula, parmesano, aceite de trufa', price: 16 }
+                    ]
+                },
+                {
+                    id: 'cocteles',
+                    name: 'Cocteles',
+                    icon: 'Martini',
+                    visible: true,
+                    items: [
+                        { name: 'Aperol Spritz', desc: 'Espumante - Aperol, prosecco, soda y naranja', price: 12 },
+                        { name: 'Lemon Spritz', desc: 'Espumante - Limoncello, prosecco y soda', price: 12 },
+                        { name: 'St Germain Spritz', desc: 'Espumante - Licor de flor de sauco, prosecco', price: 15 },
+                        { name: 'Mojito Jaggermeister', desc: 'Jagger, limón, hierbabuena', price: 8 },
+                        { name: 'Caipimaister', desc: 'Jagger, trozos de limón, azúcar', price: 9 },
+                        { name: 'Porn Star', desc: 'Vodka, vainilla, parchita, espumante', price: 7 },
+                        { name: 'Moscow Mule', desc: 'Vodka, limón, cerveza de jengibre', price: 9 },
+                        { name: 'Bloody Mary', desc: 'Vodka, tomate, limón, tabasco', price: 10 },
+                        { name: 'La Iniciacion', desc: 'Cocuy la Capilla, óleo de piña, limón, lulo', price: 13 },
+                        { name: 'Medano Rosa', desc: 'Cocuy ahumado, limón, toronja', price: 13 },
+                        { name: 'Don Juancho', desc: 'Tequila Don Julio Reposado, mango, jamaica', price: 12 },
+                        { name: 'Paloma', desc: 'Tequila Don Julio Blanco, pomelo rosado', price: 12 },
+                        { name: 'Cojonudo', desc: 'Ron Santa Teresa 1796, sparkling, naranja', price: 8 },
+                        { name: 'Zarza', desc: 'Ginebra Tanqueray, frutos del bosque', price: 8 },
+                        { name: 'Negroni', desc: 'Ginebra, vermouth rosso, campari', price: 10 },
+                        { name: 'Manhattan', desc: 'Whisky Buchannans 12, vermouth rosso', price: 12 },
+                        { name: 'Old Fashion', desc: 'Whisky Buchannans 12, angostura', price: 10 }
+                    ]
+                },
+                {
+                    id: 'servicios',
+                    name: 'Servicios (Botellas)',
+                    icon: 'Wine',
+                    visible: true,
+                    items: [
+                        { name: 'José Cuervo Reposado', desc: 'Tequila', price: 89 },
+                        { name: 'Don Julio Reposado', desc: 'Tequila', price: 149 },
+                        { name: 'Don Julio 1942', desc: 'Tequila Premium', price: 320 },
+                        { name: 'Black & White', desc: 'Whisky', price: 64 },
+                        { name: 'Old Parr 12 años', desc: 'Whisky', price: 74 },
+                        { name: 'Buchanans 12 años', desc: 'Whisky', price: 79 },
+                        { name: 'Buchanans 18 años', desc: 'Whisky', price: 179 },
+                        { name: 'Jhonny Walker Blue Label', desc: 'Whisky Lujo', price: 350 },
+                        { name: 'Grey Goose', desc: 'Vodka', price: 99 },
+                        { name: 'Smirnoff', desc: 'Vodka', price: 54 },
+                        { name: 'Cacique Añejo', desc: 'Ron', price: 47 },
+                        { name: 'Santa Teresa 1796', desc: 'Ron', price: 74 },
+                        { name: 'Prosecco Brut ICE', desc: 'Espumante', price: 60 }
+                    ]
+                },
+                {
+                    id: 'arguiles',
+                    name: 'Arguiles',
+                    icon: 'Flame',
+                    visible: true,
+                    items: [
+                        { name: 'Blue Melon', desc: 'Melón fresco y arándanos', price: 20 },
+                        { name: 'Mango Tango Ice', desc: 'Mango, maracuyá y menta', price: 20 },
+                        { name: 'Mi Amor', desc: 'Piña dulce, banana y menta', price: 20 },
+                        { name: 'Watermelon Ice', desc: 'Patilla y menta helada', price: 20 },
+                        { name: 'Doble Manzana', desc: 'Manzana roja y verde', price: 20 },
+                        { name: 'Love 66', desc: 'Maracuyá, melón, menta y patilla', price: 20 },
+                        { name: 'Hawaii', desc: 'Mango dulce, piña y menta', price: 20 },
+                        { name: 'Blueberry Ice', desc: 'Arándano y menta', price: 20 }
+                    ]
+                },
+                {
+                    id: 'postres',
+                    name: 'Postres',
+                    icon: 'IceCream',
+                    visible: false,
+                    items: [
+                        { name: 'Brownie con Helado', desc: 'Brownie tibio con nueces y helado de vainilla', price: 8 },
+                        { name: 'Cheesecake de Frutos Rojos', desc: 'Base crujiente y reducción de fresas', price: 9 },
+                        { name: 'Torta de Chocolate', desc: 'Triple chocolate belga', price: 9 }
+                    ]
+                },
+                {
+                    id: 'cafe',
+                    name: 'Cafetería',
+                    icon: 'Coffee',
+                    visible: false,
+                    items: [
+                        { name: 'Espresso', desc: 'Intenso y corto', price: 2 },
+                        { name: 'Cappuccino', desc: 'Espresso, leche vaporizada y espuma', price: 3 },
+                        { name: 'Carajillo', desc: 'Café con licor 43 batido', price: 6 }
+                    ]
+                },
+                {
+                    id: 'desayunos',
+                    name: 'Desayunos',
+                    icon: 'Croissant',
+                    visible: false,
+                    items: [
+                        { name: 'Americano', desc: 'Huevos revueltos, tocineta, tostadas y café', price: 10 },
+                        { name: 'Criollo', desc: 'Caraotas, carne mechada, queso blanco y arepa', price: 12 },
+                        { name: 'Pancakes', desc: 'Torre de pancakes con miel y frutas', price: 9 }
+                    ]
+                }
+            ]
+        };
+
+        // Exponemos las variables para React
+        window.seedData = seedData;
+        
+        // Ejecutamos inicialización
+        await initFirebase();
+
+        // Función Helper para obtener el menú
+        window.fetchMenu = async () => {
+            if (isDemoMode || !db) return seedData;
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
+            try {
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const cloudData = docSnap.data();
+                    const mergedCategories = seedData.categories.map(seedCat => {
+                        const cloudCat = cloudData.categories?.find(c => c.id === seedCat.id);
+                        return cloudCat || seedCat;
+                    });
+                    if (cloudData.categories) {
+                        cloudData.categories.forEach(cloudCat => {
+                            if (!seedData.categories.find(s => s.id === cloudCat.id)) {
+                                mergedCategories.push(cloudCat);
+                            }
+                        });
+                    }
+                    return { ...seedData, ...cloudData, categories: mergedCategories }; 
+                } else {
+                    await setDoc(docRef, seedData);
+                    return seedData;
+                }
+            } catch (err) {
+                console.error("Error obteniendo el menú:", err);
+                return seedData;
+            }
+        };
+
+        // Función Helper para guardar cambios
+        window.saveMenuToDB = async (data) => {
+            if (isDemoMode || !db) { console.log("Simulando guardado (Modo Demo):", data); return; }
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
+                await updateDoc(docRef, data);
+            } catch (err) {
+                console.error("Error guardando datos:", err);
+            }
+        };
+        window.firebaseReady = true;
+    </script>
+
+    <!-- Componente React Principal -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { icons } = lucide;
+
+        // --- DEFINICIÓN DE TEMAS ---
+        const THEMES = [
+            { id: 'ritual', name: 'Ritual Original (Marrón/Cobre)', colors: { bg: '#1A1410', card: '#2A211D', accent: '#C86E36', text: '#E5D3B3', muted: '#8C7A6B' } },
+            { id: 'obsidian', name: 'Obsidiana Minimalista (Negro/Blanco)', colors: { bg: '#000000', card: '#111111', accent: '#FFFFFF', text: '#EDEDED', muted: '#666666' } },
+            { id: 'vino', name: 'Vino Tinto Elegante', colors: { bg: '#2D0A0F', card: '#4A1C23', accent: '#E6B8B8', text: '#FADADD', muted: '#B8858C' } },
+            { id: 'oceano', name: 'Océano Profundo (Azul/Gris)', colors: { bg: '#0F172A', card: '#1E293B', accent: '#38BDF8', text: '#F1F5F9', muted: '#94A3B8' } },
+            { id: 'bosque', name: 'Bosque Nocturno (Verde/Esmeralda)', colors: { bg: '#052E16', card: '#0F3D24', accent: '#4ADE80', text: '#ECFDF5', muted: '#6EE7B7' } },
+            { id: 'navidad', name: 'Feliz Navidad (Verde/Rojo/Dorado)', colors: { bg: '#082f18', card: '#781515', accent: '#FFD700', text: '#FFFFFF', muted: '#d1d5db' } },
+            { id: 'semana-santa', name: 'Semana Santa (Nazareno/Púrpura)', colors: { bg: '#1a0b2e', card: '#2e1065', accent: '#fbbf24', text: '#f3e8ff', muted: '#a78bfa' } },
+            { id: 'carnaval', name: 'Carnavales Neón (Oscuro/Magenta)', colors: { bg: '#171717', card: '#262626', accent: '#d946ef', text: '#ffffff', muted: '#22d3ee' } },
+            { id: 'cardenales', name: 'Cardenales de Lara (Negro/Rojo/Dorado)', colors: { bg: '#000000', card: '#8B0000', accent: '#FFD700', text: '#FFFFFF', muted: '#E5E5E5' } },
+            { id: 'divina-pastora', name: 'Divina Pastora (Cream/Dorado/Café)', colors: { bg: '#F2F0E9', card: '#FFFFFF', accent: '#C5A059', text: '#3D312E', muted: '#8C8582' } },
+            { id: 'anio-nuevo', name: 'Año Nuevo (Gala/Plata)', colors: { bg: '#000000', card: '#1C1C1C', accent: '#C0C0C0', text: '#FFFFFF', muted: '#9CA3AF' } },
+            { id: 'halloween', name: 'Halloween (Naranja/Morado)', colors: { bg: '#0a0a0a', card: '#3b0764', accent: '#ea580c', text: '#f3f4f6', muted: '#9ca3af' } }
+        ];
+
+        const AVAILABLE_ICONS = [
+            'UtensilsCrossed', 'Fish', 'Martini', 'Wine', 'Flame',
+            'Pizza', 'Sandwich', 'Coffee', 'IceCream', 'Cake',
+            'Beer', 'Croissant', 'Soup', 'Beef', 'Carrot',
+            'Grape', 'ChefHat', 'Cookie', 'Cherry', 'Citrus'
+        ];
+
+        const LucideIcon = ({ name, size = 24, className = "" }) => {
+            const iconData = icons[name];
+            if (!iconData) return icons['Circle'] ? <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/></svg> : null;
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {iconData.map((child, index) => React.createElement(child[0], { ...child[1], key: index }))}
+                </svg>
+            );
+        };
+
+        const App = () => {
+            const [menuData, setMenuData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [activeCategory, setActiveCategory] = useState(null);
+            
+            // Estados Admin
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [showLogin, setShowLogin] = useState(false);
+            const [password, setPassword] = useState("");
+            const [showThemeSelector, setShowThemeSelector] = useState(false);
+            const [editingIconCategory, setEditingIconCategory] = useState(null);
+            
+            // Estados para Imagenes
+            const [showCropModal, setShowCropModal] = useState(false);
+            const [cropImageSrc, setCropImageSrc] = useState(null);
+            const [editingItemCoords, setEditingItemCoords] = useState(null); // {catId, index}
+            const cropperRef = useRef(null);
+            const imageElementRef = useRef(null);
+
+            useEffect(() => {
+                const init = async () => {
+                    try {
+                        if (window.fetchMenu) {
+                            const data = await window.fetchMenu();
+                            setMenuData(data);
+                        } else {
+                            setMenuData(window.seedData);
+                        }
+                    } catch (error) {
+                        console.error("Error en inicialización:", error);
+                        setMenuData(window.seedData);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                init();
+            }, []);
+
+            useEffect(() => {
+                if (menuData && menuData.theme) {
+                    const theme = THEMES.find(t => t.id === menuData.theme) || THEMES[0];
+                    const root = document.documentElement;
+                    root.style.setProperty('--color-bg', theme.colors.bg);
+                    root.style.setProperty('--color-card', theme.colors.card);
+                    root.style.setProperty('--color-accent', theme.colors.accent);
+                    root.style.setProperty('--color-text', theme.colors.text);
+                    root.style.setProperty('--color-muted', theme.colors.muted);
+                }
+            }, [menuData]);
+
+            // --- Lógica de Recorte ---
+            useEffect(() => {
+                // Inicializar cropper cuando se abre el modal y la imagen carga
+                if (showCropModal && cropImageSrc && imageElementRef.current) {
+                    if (cropperRef.current) {
+                        cropperRef.current.destroy();
+                    }
+                    
+                    cropperRef.current = new Cropper(imageElementRef.current, {
+                        aspectRatio: 1, // CUADRADO EXACTO
+                        viewMode: 1,
+                        background: false,
+                        autoCropArea: 1,
+                        responsive: true,
+                    });
+                }
+                return () => {
+                    if (cropperRef.current) cropperRef.current.destroy();
+                };
+            }, [showCropModal, cropImageSrc]);
+
+            const handleFileSelect = (e, catId, index) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        setCropImageSrc(reader.result);
+                        setEditingItemCoords({ catId, index });
+                        setShowCropModal(true);
+                        // Resetear input para permitir subir la misma foto si se cancela
+                        e.target.value = '';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const performCrop = () => {
+                if (!cropperRef.current || !editingItemCoords) return;
+
+                // Obtener canvas recortado
+                const canvas = cropperRef.current.getCroppedCanvas({
+                    width: 300, // Reducir tamaño para BD
+                    height: 300,
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high',
+                });
+
+                // Convertir a Base64
+                const base64Image = canvas.toDataURL('image/jpeg', 0.85);
+
+                // Guardar
+                const { catId, index } = editingItemCoords;
+                updateItem(catId, index, 'image', base64Image);
+                
+                // Cerrar modal
+                setShowCropModal(false);
+                setCropImageSrc(null);
+                setEditingItemCoords(null);
+            };
+
+            // --- MANEJADORES ---
+            const toggleCategory = (id) => setActiveCategory(activeCategory === id ? null : id);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (password === "admin123") {
+                    setIsAdmin(true);
+                    setShowLogin(false);
+                    setPassword("");
+                } else {
+                    alert("Contraseña incorrecta");
+                }
+            };
+
+            const saveChanges = async (newData) => {
+                setMenuData(newData);
+                if (window.saveMenuToDB) {
+                    await window.saveMenuToDB(newData);
+                }
+            };
+
+            const updateItem = (catId, index, field, value) => {
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === catId);
+                if(field === 'price') value = Number(value);
+                newData.categories[catIndex].items[index][field] = value;
+                saveChanges(newData);
+            };
+            
+            const removeItemImage = (catId, index) => {
+                 if(!confirm("¿Eliminar imagen del plato?")) return;
+                 updateItem(catId, index, 'image', null);
+            };
+
+            const deleteItem = (catId, index) => {
+                if(!confirm("¿Estás seguro de borrar este plato?")) return;
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === catId);
+                newData.categories[catIndex].items.splice(index, 1);
+                saveChanges(newData);
+            };
+
+            const addItem = (catId) => {
+                const name = prompt("Nombre del nuevo plato:");
+                if(!name) return;
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === catId);
+                newData.categories[catIndex].items.push({ name, desc: "Descripción nueva", price: 0, image: null });
+                saveChanges(newData);
+            };
+
+            const toggleCatVisibility = (catId) => {
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === catId);
+                newData.categories[catIndex].visible = !newData.categories[catIndex].visible;
+                saveChanges(newData);
+            };
+
+            const updateCategoryName = (catId, newName) => {
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === catId);
+                newData.categories[catIndex].name = newName;
+                saveChanges(newData);
+            };
+
+            const updateCategoryIcon = (iconName) => {
+                if (!editingIconCategory) return;
+                const newData = { ...menuData };
+                const catIndex = newData.categories.findIndex(c => c.id === editingIconCategory);
+                newData.categories[catIndex].icon = iconName;
+                saveChanges(newData);
+                setEditingIconCategory(null);
+            };
+
+            const addCategory = () => {
+                const newId = `cat-${Date.now()}`;
+                const newCat = {
+                    id: newId,
+                    name: 'Nueva Categoría',
+                    icon: 'Utensils',
+                    visible: false,
+                    items: []
+                };
+                const newData = { ...menuData, categories: [...menuData.categories, newCat] };
+                saveChanges(newData);
+            };
+
+            const deleteCategory = (catId) => {
+                if(!confirm("¿Estás seguro de eliminar toda esta categoría y sus platos?")) return;
+                const newData = { ...menuData };
+                newData.categories = newData.categories.filter(c => c.id !== catId);
+                saveChanges(newData);
+            };
+
+            const changeTheme = (themeId) => {
+                const newData = { ...menuData, theme: themeId };
+                saveChanges(newData);
+            };
+
+            if (loading) return (
+                <div className="flex items-center justify-center h-screen bg-ritual-bg text-ritual-accent">
+                    <div className="flex flex-col items-center gap-4">
+                        <LucideIcon name="Loader2" className="animate-spin" size={48} />
+                        <span className="uppercase tracking-widest text-xs">Cargando Experiencia...</span>
+                    </div>
+                </div>
+            );
+
+            if (!menuData) return <div className="text-white p-10 text-center">No se pudieron cargar los datos.</div>;
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-ritual-bg shadow-2xl relative pb-24 border-x border-ritual-card transition-colors duration-700">
+                    
+                    {/* HEADER */}
+                    <header className="p-6 text-center border-b border-ritual-accent/20 bg-ritual-bg transition-colors duration-700">
+                        <div className="flex justify-center">
+                             {/* LOGO DE LA MARCA */}
+                             <div className="transition-transform duration-700 hover:scale-105 w-full flex justify-center">
+                                <img src="./logo.png" alt="Ritual Logo" className="h-48 w-auto max-w-full object-contain drop-shadow-[0_0_15px_rgba(var(--color-accent),0.4)]" onError={(e) => {e.target.onerror = null; e.target.src='https://placehold.co/300x150?text=RITUAL'}} />
+                             </div>
+                        </div>
+                    </header>
+
+                    {/* CONTENIDO DEL MENÚ */}
+                    <main className="p-4 space-y-4 mt-2">
+                        {menuData.categories.map((cat) => (
+                            (!cat.visible && !isAdmin) ? null : (
+                            <div key={cat.id} className={`rounded-lg overflow-hidden transition-all duration-300 ${activeCategory === cat.id ? 'bg-ritual-card shadow-lg ring-1 ring-ritual-accent/30 mb-4 scale-[1.02]' : 'bg-ritual-card/40 hover:bg-ritual-card/60'}`}>
+                                
+                                {/* CABECERA DE CATEGORÍA */}
+                                <div 
+                                    className="p-5 flex items-center justify-between cursor-pointer select-none"
+                                    onClick={() => toggleCategory(cat.id)}
+                                >
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <div 
+                                            onClick={(e) => {
+                                                if(isAdmin) {
+                                                    e.stopPropagation();
+                                                    setEditingIconCategory(cat.id);
+                                                }
+                                            }}
+                                            className={`p-2 rounded-md transition-colors relative group/icon ${activeCategory === cat.id ? 'bg-ritual-accent/20 text-ritual-accent' : 'bg-black/20 text-ritual-muted'} ${isAdmin ? 'hover:bg-ritual-accent/40 cursor-pointer' : ''}`}
+                                        >
+                                            <LucideIcon name={cat.icon} size={24} />
+                                            {isAdmin && <div className="absolute -top-1 -right-1 bg-ritual-accent text-white rounded-full p-0.5 transform scale-0 group-hover/icon:scale-100 transition-transform"><LucideIcon name="Pencil" size={10} /></div>}
+                                        </div>
+
+                                        {isAdmin ? (
+                                            <div className="flex-1" onClick={(e) => e.stopPropagation()}>
+                                                <input 
+                                                    value={cat.name}
+                                                    onChange={(e) => updateCategoryName(cat.id, e.target.value)}
+                                                    className="bg-transparent text-lg font-semibold tracking-wide uppercase text-ritual-text w-full outline-none border-b border-transparent focus:border-ritual-accent/50"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <h2 className={`text-lg font-semibold tracking-wide uppercase ${activeCategory === cat.id ? 'text-ritual-text' : 'text-ritual-text/80'}`}>{cat.name}</h2>
+                                        )}
+
+                                        {isAdmin && !cat.visible && <span className="text-[10px] uppercase font-bold tracking-wider bg-red-900/50 text-red-200 px-2 py-0.5 rounded border border-red-800">Oculto</span>}
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-3">
+                                         {isAdmin && (
+                                            <div className="flex items-center gap-1">
+                                                <button onClick={(e) => {e.stopPropagation(); deleteCategory(cat.id)}} className="p-2 text-red-400/50 hover:text-red-400 hover:bg-red-900/20 rounded-full transition-colors" title="Eliminar Categoría">
+                                                    <LucideIcon name="Trash2" size={16} />
+                                                </button>
+                                                <button onClick={(e) => {e.stopPropagation(); toggleCatVisibility(cat.id)}} className="p-2 text-ritual-muted hover:text-ritual-text hover:bg-white/5 rounded-full transition-colors" title={cat.visible ? "Ocultar al público" : "Mostrar al público"}>
+                                                    <LucideIcon name={cat.visible ? "Eye" : "EyeOff"} size={18} />
+                                                </button>
+                                            </div>
+                                         )}
+                                        <LucideIcon 
+                                            name="ChevronDown" 
+                                            className={`text-ritual-muted transition-transform duration-300 ${activeCategory === cat.id ? 'rotate-180 text-ritual-accent' : ''}`} 
+                                            size={20}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* LISTA DE PLATOS */}
+                                {activeCategory === cat.id && (
+                                    <div className="border-t border-ritual-accent/10 animate-fadeIn bg-black/10">
+                                        <div className="p-4 space-y-4">
+                                            {cat.items.map((item, index) => (
+                                                <div key={index} className="flex gap-3 group relative p-2 rounded-lg hover:bg-white/5 transition-colors">
+                                                    
+                                                    {/* CONTENIDO TEXTO (IZQUIERDA) */}
+                                                    <div className="flex-1 flex flex-col justify-between">
+                                                        <div>
+                                                            <div className="flex justify-between items-start">
+                                                                {isAdmin ? (
+                                                                    <input 
+                                                                        className="bg-transparent border-b border-ritual-muted/50 w-full text-ritual-text font-medium focus:border-ritual-accent outline-none py-1 transition-colors"
+                                                                        value={item.name}
+                                                                        onChange={(e) => updateItem(cat.id, index, 'name', e.target.value)}
+                                                                    />
+                                                                ) : (
+                                                                    <h3 className="font-medium text-base text-ritual-text tracking-wide leading-tight">{item.name}</h3>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {isAdmin ? (
+                                                                <textarea 
+                                                                    className="bg-transparent border-b border-ritual-muted/30 w-full text-sm text-ritual-muted mt-1 outline-none resize-none h-12 transition-colors"
+                                                                    value={item.desc}
+                                                                    onChange={(e) => updateItem(cat.id, index, 'desc', e.target.value)}
+                                                                />
+                                                            ) : (
+                                                                <p className="text-sm text-ritual-muted mt-1 leading-relaxed font-light opacity-80">{item.desc}</p>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-4 mt-2">
+                                                            {isAdmin ? (
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-ritual-accent text-sm">$</span>
+                                                                    <input 
+                                                                        type="number"
+                                                                        className="bg-transparent border-b border-ritual-accent w-12 text-left font-bold text-ritual-accent outline-none"
+                                                                        value={item.price}
+                                                                        onChange={(e) => updateItem(cat.id, index, 'price', e.target.value)}
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-base font-bold text-ritual-accent">${item.price}</span>
+                                                            )}
+
+                                                            {/* BOTONES ADMIN ITEM */}
+                                                            {isAdmin && (
+                                                                <div className="flex items-center gap-2">
+                                                                    {/* Input de archivo oculto */}
+                                                                    <label className="cursor-pointer text-ritual-muted hover:text-ritual-accent transition-colors p-1" title="Subir Foto">
+                                                                        <input 
+                                                                            type="file" 
+                                                                            accept="image/*" 
+                                                                            className="hidden" 
+                                                                            onChange={(e) => handleFileSelect(e, cat.id, index)}
+                                                                        />
+                                                                        <LucideIcon name="Camera" size={16} />
+                                                                    </label>
+                                                                    
+                                                                    {item.image && (
+                                                                         <button onClick={() => removeItemImage(cat.id, index)} className="text-red-400/60 hover:text-red-400 p-1" title="Quitar imagen">
+                                                                            <LucideIcon name="ImageMinus" size={16} />
+                                                                         </button>
+                                                                    )}
+
+                                                                    <button onClick={() => deleteItem(cat.id, index)} className="text-red-500/50 hover:text-red-400 p-1" title="Eliminar plato">
+                                                                        <LucideIcon name="Trash2" size={16} />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* IMAGEN DEL PLATO (DERECHA) */}
+                                                    {item.image && (
+                                                        <div className="w-24 h-24 shrink-0 rounded-lg overflow-hidden border border-ritual-muted/20 shadow-sm bg-black/20">
+                                                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                                        </div>
+                                                    )}
+                                                    
+                                                </div>
+                                            ))}
+                                            
+                                            {isAdmin && (
+                                                <button 
+                                                    onClick={() => addItem(cat.id)}
+                                                    className="w-full py-3 border border-dashed border-ritual-muted/50 text-ritual-muted rounded hover:border-ritual-accent hover:text-ritual-accent hover:bg-ritual-accent/5 transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider mt-4"
+                                                >
+                                                    <LucideIcon name="Plus" size={16} /> Agregar Plato
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )))}
+
+                        {isAdmin && (
+                            <button 
+                                onClick={addCategory}
+                                className="w-full py-4 bg-ritual-card border border-ritual-accent/30 text-ritual-accent rounded-lg hover:bg-ritual-accent hover:text-white transition-all flex items-center justify-center gap-3 shadow-lg uppercase tracking-widest font-bold mt-6"
+                            >
+                                <LucideIcon name="FolderPlus" size={20} /> Nueva Categoría
+                            </button>
+                        )}
+                    </main>
+
+                    {/* FOOTER */}
+                    <footer className="mt-12 py-8 text-center text-ritual-muted text-[10px] uppercase tracking-widest relative opacity-60">
+                        <p>©️ 2024 Ritual Bar Fusion</p>
+                        <p className="mt-2">Precios sujetos a cambio sin previo aviso</p>
+                        <p className="mt-1">Los precios no incluyen IVA</p>
+                        <button 
+                            onClick={() => setShowLogin(true)} 
+                            className="absolute bottom-4 right-4 p-2 text-ritual-muted/50 hover:text-ritual-accent transition-colors cursor-pointer z-10"
+                            title="Acceso Admin"
+                        >
+                            <LucideIcon name="Settings" size={18} />
+                        </button>
+                    </footer>
+
+                    {/* MODAL CROP (SOLO ADMIN) */}
+                    {showCropModal && (
+                        <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center z-[60] p-4 animate-fadeIn">
+                            <div className="bg-ritual-card w-full max-w-lg rounded-xl overflow-hidden shadow-2xl border border-ritual-accent/30 flex flex-col max-h-[90vh]">
+                                <div className="p-4 border-b border-ritual-muted/20 flex justify-between items-center bg-ritual-bg/50">
+                                    <h3 className="text-ritual-text font-bold uppercase tracking-widest flex items-center gap-2 text-sm">
+                                        <LucideIcon name="Crop" size={16} /> Ajustar Imagen
+                                    </h3>
+                                    <button onClick={() => {setShowCropModal(false); setCropImageSrc(null);}} className="text-ritual-muted hover:text-white"><LucideIcon name="X" size={20}/></button>
+                                </div>
+                                
+                                <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center p-4">
+                                    {/* Contenedor imagen para cropper */}
+                                    <div className="max-h-[50vh] w-full">
+                                        <img ref={imageElementRef} src={cropImageSrc} alt="Crop preview" className="max-w-full block" />
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-ritual-bg/50 border-t border-ritual-muted/20 flex justify-end gap-3">
+                                    <button onClick={() => {setShowCropModal(false); setCropImageSrc(null);}} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-ritual-muted hover:text-white transition-colors">Cancelar</button>
+                                    <button onClick={performCrop} className="px-6 py-2 bg-ritual-accent text-white text-xs font-bold uppercase tracking-wider rounded shadow-lg hover:bg-ritual-accent/80 transition-colors flex items-center gap-2">
+                                        <LucideIcon name="Check" size={14} /> Guardar Foto
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL LOGIN */}
+                    {showLogin && !isAdmin && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+                            <div className="bg-ritual-card p-8 rounded-xl w-full max-w-xs border border-ritual-accent/50 shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+                                <div className="text-center mb-6">
+                                    <LucideIcon name="Lock" className="mx-auto text-ritual-accent mb-2" size={24} />
+                                    <h3 className="text-ritual-text text-xl font-light uppercase tracking-widest">Acceso Admin</h3>
+                                </div>
+                                <form onSubmit={handleLogin} className="space-y-4">
+                                    <input 
+                                        type="password" 
+                                        placeholder="Contraseña"
+                                        className="w-full bg-ritual-bg border border-ritual-muted/50 p-3 rounded text-ritual-text focus:border-ritual-accent outline-none transition-colors text-center tracking-widest placeholder-ritual-muted/50"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <div className="flex gap-3 pt-2">
+                                        <button type="button" onClick={() => setShowLogin(false)} className="flex-1 py-2 bg-transparent border border-ritual-muted text-ritual-muted rounded hover:bg-white/5 transition-colors uppercase text-xs tracking-wider">Cancelar</button>
+                                        <button type="submit" className="flex-1 py-2 bg-ritual-accent text-white font-bold rounded shadow-lg shadow-ritual-accent/20 hover:bg-ritual-accent/90 transition-colors uppercase text-xs tracking-wider">Entrar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* SELECTOR DE TEMAS */}
+                    {showThemeSelector && isAdmin && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center z-50 animate-fadeIn">
+                            <div className="bg-ritual-card w-full sm:max-w-md max-h-[80vh] overflow-y-auto rounded-t-2xl sm:rounded-xl border-t sm:border border-ritual-accent/30 shadow-2xl">
+                                <div className="sticky top-0 bg-ritual-card/95 backdrop-blur p-4 border-b border-ritual-muted/20 flex justify-between items-center z-10">
+                                    <h3 className="text-ritual-text font-bold uppercase tracking-widest flex items-center gap-2">
+                                        <LucideIcon name="Palette" size={18} /> Elegir Tema
+                                    </h3>
+                                    <button onClick={() => setShowThemeSelector(false)} className="text-ritual-muted hover:text-white"><LucideIcon name="X" size={20}/></button>
+                                </div>
+                                <div className="p-4 grid grid-cols-1 gap-3">
+                                    {THEMES.map(theme => (
+                                        <button 
+                                            key={theme.id}
+                                            onClick={() => changeTheme(theme.id)}
+                                            className={`flex items-center gap-4 p-3 rounded-lg border transition-all group ${menuData.theme === theme.id ? 'border-ritual-accent bg-ritual-accent/10' : 'border-transparent hover:bg-white/5'}`}
+                                        >
+                                            <div className="flex gap-1 shrink-0">
+                                                <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{backgroundColor: theme.colors.bg}}></div>
+                                                <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{backgroundColor: theme.colors.card}}></div>
+                                                <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{backgroundColor: theme.colors.accent}}></div>
+                                            </div>
+                                            <span className="text-ritual-text font-medium text-sm text-left flex-1 group-hover:text-ritual-accent transition-colors">{theme.name}</span>
+                                            {menuData.theme === theme.id && <LucideIcon name="Check" size={16} className="text-ritual-accent" />}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* SELECTOR DE ICONOS */}
+                    {editingIconCategory && isAdmin && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center z-50 animate-fadeIn">
+                            <div className="bg-ritual-card w-full sm:max-w-md rounded-t-2xl sm:rounded-xl border-t sm:border border-ritual-accent/30 shadow-2xl max-h-[80vh] flex flex-col">
+                                <div className="p-4 border-b border-ritual-muted/20 flex justify-between items-center">
+                                    <h3 className="text-ritual-text font-bold uppercase tracking-widest flex items-center gap-2">
+                                        <LucideIcon name="LayoutGrid" size={18} /> Elegir Icono
+                                    </h3>
+                                    <button onClick={() => setEditingIconCategory(null)} className="text-ritual-muted hover:text-white"><LucideIcon name="X" size={20}/></button>
+                                </div>
+                                <div className="p-6 grid grid-cols-5 gap-4 overflow-y-auto">
+                                    {AVAILABLE_ICONS.map(iconName => (
+                                        <button 
+                                            key={iconName}
+                                            onClick={() => updateCategoryIcon(iconName)}
+                                            className="aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border border-ritual-muted/20 hover:bg-ritual-accent/20 hover:border-ritual-accent hover:text-ritual-accent text-ritual-muted transition-all"
+                                        >
+                                            <LucideIcon name={iconName} size={24} />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                     {/* BARRA FLOTANTE ADMIN */}
+                     {isAdmin && (
+                        <div className="fixed bottom-0 left-0 right-0 bg-ritual-accent/95 backdrop-blur text-white p-3 text-center text-sm font-bold z-40 flex justify-between items-center px-6 shadow-[0_-5px_20px_rgba(0,0,0,0.5)] animate-fadeIn">
+                            <div className="flex items-center gap-3">
+                                <button 
+                                    onClick={() => setShowThemeSelector(true)}
+                                    className="bg-black/20 p-2 rounded-full hover:bg-black/40 transition-colors flex items-center gap-2 px-3"
+                                    title="Cambiar Tema Visual"
+                                >
+                                    <LucideIcon name="Palette" size={16} />
+                                    <span className="text-[10px] uppercase tracking-wider">Temas</span>
+                                </button>
+                                <span className="uppercase tracking-wider text-xs hidden sm:inline ml-2 border-l border-white/20 pl-4">Modo Editor Activo</span>
+                            </div>
+                            <button onClick={() => setIsAdmin(false)} className="bg-black/20 px-4 py-1.5 rounded-full hover:bg-black/40 transition-colors uppercase text-[10px] tracking-widest font-bold">Salir</button>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
