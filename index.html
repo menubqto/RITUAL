@@ -101,36 +101,11 @@
             appId: "1:492954734206:web:12c5680eb0a3c85db3d22f"
         };
         
-        const appId = 'ritual-bar-app'; // ID constante para la ruta de la BD
-        
+        const appId = 'ritual-bar-app';
         let app, db, auth;
-        let isDemoMode = true;
+        let isDemoMode = true; // Por defecto true hasta que conecte
 
-        const initFirebase = async () => {
-            try {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                // Monitor de estado de conexión
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        console.log("Usuario autenticado (Anónimo):", user.uid);
-                        isDemoMode = false;
-                        if(window.onFirebaseReady) window.onFirebaseReady();
-                    } else {
-                        console.log("Usuario desconectado");
-                        signInAnonymously(auth).catch(e => console.error("Error auth:", e));
-                    }
-                });
-
-            } catch (e) {
-                console.error("Error crítico inicializando Firebase:", e);
-                isDemoMode = true;
-            }
-        };
-
-        // --- 2. DATOS SEMILLA ---
+        // --- 2. DATOS SEMILLA (Definidos PRIMERO para asegurar disponibilidad) ---
         const seedData = {
             theme: 'ritual',
             categories: [
@@ -288,13 +263,13 @@
         };
 
         window.seedData = seedData;
-        await initFirebase();
 
-        // Helper: Fetch Menu (ahora usa onSnapshot para tiempo real si se desea, pero mantendremos getDoc para carga inicial simple)
+        // --- DEFINICIÓN DE HELPERS (Antes de initFirebase) ---
+        
+        // Helper: Fetch Menu
         window.fetchMenu = async () => {
             if (isDemoMode || !db) return seedData;
             
-            // Ruta exacta según reglas: artifacts/ritual-bar-app/public/data/menu
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
             
             try {
@@ -302,7 +277,7 @@
                 if (docSnap.exists()) {
                     const cloudData = docSnap.data();
                     
-                    // Fusión de datos para asegurar estructura
+                    // Fusión de datos
                     const mergedCategories = seedData.categories.map(seedCat => {
                         const cloudCat = cloudData.categories?.find(c => c.id === seedCat.id);
                         return cloudCat || seedCat;
@@ -317,33 +292,62 @@
                     }
                     return { ...seedData, ...cloudData, categories: mergedCategories }; 
                 } else {
-                    // Si no existe, lo creamos
-                    console.log("Creando menú inicial en BD...");
+                    console.log("Creando menú inicial...");
                     await setDoc(docRef, seedData);
                     return seedData;
                 }
             } catch (err) {
-                console.error("Error obteniendo el menú:", err);
+                console.warn("Error obteniendo menú (usando local):", err);
                 return seedData;
             }
         };
 
-        // Helper: Guardar (Usando setDoc para sobrescribir/crear de forma segura)
+        // Helper: Guardar
         window.saveMenuToDB = async (data) => {
             if (isDemoMode || !db) { 
-                console.warn("Modo Demo: No se guardan cambios en la nube."); 
+                console.warn("Modo Demo: No se guardan cambios."); 
                 return false; 
             }
             try {
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
-                await setDoc(docRef, data); // setDoc es más seguro que updateDoc si el documento pudiera no existir
-                console.log("Guardado exitoso en Firebase");
+                await setDoc(docRef, data);
+                console.log("Guardado exitoso");
                 return true;
             } catch (err) {
-                console.error("Error guardando datos:", err);
+                console.error("Error guardando:", err);
                 return false;
             }
         };
+
+        // --- INICIALIZACIÓN FIREBASE (NO BLOQUEANTE) ---
+        const initFirebase = async () => {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        console.log("Conectado como:", user.uid);
+                        isDemoMode = false;
+                        // Notificar a la app si fuera necesario, aunque React hará polling
+                    } else {
+                        console.log("Usuario desconectado, intentando anónimo...");
+                        signInAnonymously(auth).catch(e => {
+                            console.error("Fallo auth anónima:", e);
+                            isDemoMode = true;
+                        });
+                    }
+                });
+            } catch (e) {
+                console.error("Fallo init Firebase:", e);
+                isDemoMode = true;
+            }
+        };
+
+        // Ejecutar inicialización sin bloquear el resto del script
+        initFirebase();
+
     </script>
 
     <!-- Componente React Principal -->
@@ -406,23 +410,46 @@
             const cropperRef = useRef(null);
             const imageElementRef = useRef(null);
 
-            // Hook para escuchar cuando Firebase esté listo
+            // Hook de Carga Inicial con Timeout de Seguridad
             useEffect(() => {
+                let isMounted = true;
+
                 const loadData = async () => {
-                    if (window.fetchMenu) {
-                        const data = await window.fetchMenu();
-                        setMenuData(data);
-                    } else {
-                        setMenuData(window.seedData);
+                    // Promesa de timeout: si Firebase tarda más de 4s, resolvemos con 'timeout'
+                    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve('timeout'), 4000));
+                    
+                    try {
+                        let data;
+                        if (window.fetchMenu) {
+                            // Carrera entre la carga real y el timeout
+                            const result = await Promise.race([window.fetchMenu(), timeoutPromise]);
+                            
+                            if (result === 'timeout') {
+                                console.warn("Firebase tardó mucho, usando datos locales.");
+                                data = window.seedData;
+                            } else {
+                                data = result;
+                            }
+                        } else {
+                            data = window.seedData;
+                        }
+
+                        if (isMounted) {
+                            // Aseguramos que siempre haya datos
+                            setMenuData(data || window.seedData);
+                            setLoading(false);
+                        }
+                    } catch (error) {
+                        console.error("Error cargando datos:", error);
+                        if (isMounted) {
+                            setMenuData(window.seedData);
+                            setLoading(false);
+                        }
                     }
-                    setLoading(false);
                 };
 
-                // Si firebase ya cargó, cargamos datos. Si no, esperamos al evento.
-                if (!loading) return; 
-                
-                // Pequeño delay para asegurar que auth state cargó
-                setTimeout(loadData, 1000);
+                loadData();
+                return () => { isMounted = false; };
             }, []);
 
             useEffect(() => {
