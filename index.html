@@ -74,6 +74,14 @@
 
         /* Estilos para el Cropper */
         .cropper-container { max-height: 400px; }
+
+        /* NUEVO: Efecto de borde suave/resplandor para el logo */
+        .logo-glow {
+            /* Primer drop-shadow: borde fino blanco/brillante para contraste inmediato */
+            /* Segundo drop-shadow: resplandor difuso con el color del tema (accent) */
+            filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 15px var(--color-accent));
+            will-change: filter; /* Optimización de rendimiento */
+        }
     </style>
 </head>
 <body class="bg-ritual-bg text-ritual-text min-h-screen transition-colors duration-700 ease-in-out">
@@ -588,9 +596,14 @@
                     {/* HEADER */}
                     <header className="p-6 text-center border-b border-ritual-accent/20 bg-ritual-bg transition-colors duration-700">
                         <div className="flex justify-center">
-                             {/* LOGO DE LA MARCA */}
+                             {/* LOGO DE LA MARCA CON EFECTO GLOW */}
                              <div className="transition-transform duration-700 hover:scale-105 w-full flex justify-center">
-                                <img src="./logo.png" alt="Ritual Logo" className="h-48 w-auto max-w-full object-contain drop-shadow-[0_0_15px_rgba(var(--color-accent),0.4)]" onError={(e) => {e.target.onerror = null; e.target.src='https://placehold.co/300x150?text=RITUAL'}} />
+                                <img 
+                                    src="./logo.png" 
+                                    alt="Ritual Logo" 
+                                    className="h-48 w-auto max-w-full object-contain logo-glow" 
+                                    onError={(e) => {e.target.onerror = null; e.target.src='https://placehold.co/300x150?text=RITUAL'}} 
+                                />
                              </div>
                         </div>
                     </header>
