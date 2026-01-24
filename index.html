@@ -75,12 +75,10 @@
         /* Estilos para el Cropper */
         .cropper-container { max-height: 400px; }
 
-        /* NUEVO: Efecto de borde suave/resplandor para el logo */
+        /* Efecto de borde suave/resplandor para el logo */
         .logo-glow {
-            /* Primer drop-shadow: borde fino blanco/brillante para contraste inmediato */
-            /* Segundo drop-shadow: resplandor difuso con el color del tema (accent) */
             filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 15px var(--color-accent));
-            will-change: filter; /* Optimización de rendimiento */
+            will-change: filter;
         }
     </style>
 </head>
@@ -93,7 +91,7 @@
         import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // --- 1. CONFIGURACIÓN DE FIREBASE (PERSONALIZADA) ---
+        // --- 1. CONFIGURACIÓN DE FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyD09IAtbRQfi92vjdWbutkhKVF2xEOdCPk",
             authDomain: "ritual-e9691.firebaseapp.com",
@@ -103,8 +101,7 @@
             appId: "1:492954734206:web:12c5680eb0a3c85db3d22f"
         };
         
-        // Identificador interno para organizar la DB
-        const appId = 'ritual-bar-app';
+        const appId = 'ritual-bar-app'; // ID constante para la ruta de la BD
         
         let app, db, auth;
         let isDemoMode = true;
@@ -114,19 +111,26 @@
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
-                isDemoMode = false;
-                console.log("Firebase conectado (Proyecto: ritual-e9691).");
+                
+                // Monitor de estado de conexión
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        console.log("Usuario autenticado (Anónimo):", user.uid);
+                        isDemoMode = false;
+                        if(window.onFirebaseReady) window.onFirebaseReady();
+                    } else {
+                        console.log("Usuario desconectado");
+                        signInAnonymously(auth).catch(e => console.error("Error auth:", e));
+                    }
+                });
 
-                // Autenticación Anónima
-                // Asegúrate de habilitar "Anonymous" en Authentication > Sign-in method en tu consola
-                await signInAnonymously(auth);
             } catch (e) {
                 console.error("Error crítico inicializando Firebase:", e);
                 isDemoMode = true;
             }
         };
 
-        // --- 2. DATOS SEMILLA (COMPLETOS CON NUEVAS CATEGORÍAS) ---
+        // --- 2. DATOS SEMILLA ---
         const seedData = {
             theme: 'ritual',
             categories: [
@@ -283,24 +287,27 @@
             ]
         };
 
-        // Exponemos las variables para React
         window.seedData = seedData;
-        
-        // Ejecutamos inicialización
         await initFirebase();
 
-        // Función Helper para obtener el menú
+        // Helper: Fetch Menu (ahora usa onSnapshot para tiempo real si se desea, pero mantendremos getDoc para carga inicial simple)
         window.fetchMenu = async () => {
             if (isDemoMode || !db) return seedData;
+            
+            // Ruta exacta según reglas: artifacts/ritual-bar-app/public/data/menu
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
+            
             try {
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     const cloudData = docSnap.data();
+                    
+                    // Fusión de datos para asegurar estructura
                     const mergedCategories = seedData.categories.map(seedCat => {
                         const cloudCat = cloudData.categories?.find(c => c.id === seedCat.id);
                         return cloudCat || seedCat;
                     });
+                    
                     if (cloudData.categories) {
                         cloudData.categories.forEach(cloudCat => {
                             if (!seedData.categories.find(s => s.id === cloudCat.id)) {
@@ -310,6 +317,8 @@
                     }
                     return { ...seedData, ...cloudData, categories: mergedCategories }; 
                 } else {
+                    // Si no existe, lo creamos
+                    console.log("Creando menú inicial en BD...");
                     await setDoc(docRef, seedData);
                     return seedData;
                 }
@@ -319,17 +328,22 @@
             }
         };
 
-        // Función Helper para guardar cambios
+        // Helper: Guardar (Usando setDoc para sobrescribir/crear de forma segura)
         window.saveMenuToDB = async (data) => {
-            if (isDemoMode || !db) { console.log("Simulando guardado (Modo Demo):", data); return; }
+            if (isDemoMode || !db) { 
+                console.warn("Modo Demo: No se guardan cambios en la nube."); 
+                return false; 
+            }
             try {
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'menu');
-                await updateDoc(docRef, data);
+                await setDoc(docRef, data); // setDoc es más seguro que updateDoc si el documento pudiera no existir
+                console.log("Guardado exitoso en Firebase");
+                return true;
             } catch (err) {
                 console.error("Error guardando datos:", err);
+                return false;
             }
         };
-        window.firebaseReady = true;
     </script>
 
     <!-- Componente React Principal -->
@@ -382,30 +396,33 @@
             const [showThemeSelector, setShowThemeSelector] = useState(false);
             const [editingIconCategory, setEditingIconCategory] = useState(null);
             
+            // Estado de Guardado
+            const [isSaving, setIsSaving] = useState(false);
+            
             // Estados para Imagenes
             const [showCropModal, setShowCropModal] = useState(false);
             const [cropImageSrc, setCropImageSrc] = useState(null);
-            const [editingItemCoords, setEditingItemCoords] = useState(null); // {catId, index}
+            const [editingItemCoords, setEditingItemCoords] = useState(null); 
             const cropperRef = useRef(null);
             const imageElementRef = useRef(null);
 
+            // Hook para escuchar cuando Firebase esté listo
             useEffect(() => {
-                const init = async () => {
-                    try {
-                        if (window.fetchMenu) {
-                            const data = await window.fetchMenu();
-                            setMenuData(data);
-                        } else {
-                            setMenuData(window.seedData);
-                        }
-                    } catch (error) {
-                        console.error("Error en inicialización:", error);
+                const loadData = async () => {
+                    if (window.fetchMenu) {
+                        const data = await window.fetchMenu();
+                        setMenuData(data);
+                    } else {
                         setMenuData(window.seedData);
-                    } finally {
-                        setLoading(false);
                     }
+                    setLoading(false);
                 };
-                init();
+
+                // Si firebase ya cargó, cargamos datos. Si no, esperamos al evento.
+                if (!loading) return; 
+                
+                // Pequeño delay para asegurar que auth state cargó
+                setTimeout(loadData, 1000);
             }, []);
 
             useEffect(() => {
@@ -422,23 +439,17 @@
 
             // --- Lógica de Recorte ---
             useEffect(() => {
-                // Inicializar cropper cuando se abre el modal y la imagen carga
                 if (showCropModal && cropImageSrc && imageElementRef.current) {
-                    if (cropperRef.current) {
-                        cropperRef.current.destroy();
-                    }
-                    
+                    if (cropperRef.current) cropperRef.current.destroy();
                     cropperRef.current = new Cropper(imageElementRef.current, {
-                        aspectRatio: 1, // CUADRADO EXACTO
+                        aspectRatio: 1, 
                         viewMode: 1,
                         background: false,
                         autoCropArea: 1,
                         responsive: true,
                     });
                 }
-                return () => {
-                    if (cropperRef.current) cropperRef.current.destroy();
-                };
+                return () => { if (cropperRef.current) cropperRef.current.destroy(); };
             }, [showCropModal, cropImageSrc]);
 
             const handleFileSelect = (e, catId, index) => {
@@ -449,7 +460,6 @@
                         setCropImageSrc(reader.result);
                         setEditingItemCoords({ catId, index });
                         setShowCropModal(true);
-                        // Resetear input para permitir subir la misma foto si se cancela
                         e.target.value = '';
                     };
                     reader.readAsDataURL(file);
@@ -458,23 +468,13 @@
 
             const performCrop = () => {
                 if (!cropperRef.current || !editingItemCoords) return;
-
-                // Obtener canvas recortado
                 const canvas = cropperRef.current.getCroppedCanvas({
-                    width: 300, // Reducir tamaño para BD
-                    height: 300,
-                    imageSmoothingEnabled: true,
-                    imageSmoothingQuality: 'high',
+                    width: 300, height: 300, // Optimización de tamaño
+                    imageSmoothingEnabled: true, imageSmoothingQuality: 'high',
                 });
-
-                // Convertir a Base64
                 const base64Image = canvas.toDataURL('image/jpeg', 0.85);
-
-                // Guardar
                 const { catId, index } = editingItemCoords;
                 updateItem(catId, index, 'image', base64Image);
-                
-                // Cerrar modal
                 setShowCropModal(false);
                 setCropImageSrc(null);
                 setEditingItemCoords(null);
@@ -496,9 +496,11 @@
 
             const saveChanges = async (newData) => {
                 setMenuData(newData);
+                setIsSaving(true);
                 if (window.saveMenuToDB) {
                     await window.saveMenuToDB(newData);
                 }
+                setTimeout(() => setIsSaving(false), 800);
             };
 
             const updateItem = (catId, index, field, value) => {
@@ -557,11 +559,7 @@
             const addCategory = () => {
                 const newId = `cat-${Date.now()}`;
                 const newCat = {
-                    id: newId,
-                    name: 'Nueva Categoría',
-                    icon: 'Utensils',
-                    visible: false,
-                    items: []
+                    id: newId, name: 'Nueva Categoría', icon: 'Utensils', visible: false, items: []
                 };
                 const newData = { ...menuData, categories: [...menuData.categories, newCat] };
                 saveChanges(newData);
@@ -596,7 +594,6 @@
                     {/* HEADER */}
                     <header className="p-6 text-center border-b border-ritual-accent/20 bg-ritual-bg transition-colors duration-700">
                         <div className="flex justify-center">
-                             {/* LOGO DE LA MARCA CON EFECTO GLOW */}
                              <div className="transition-transform duration-700 hover:scale-105 w-full flex justify-center">
                                 <img 
                                     src="./logo.png" 
@@ -672,10 +669,15 @@
                                     <div className="border-t border-ritual-accent/10 animate-fadeIn bg-black/10">
                                         <div className="p-4 space-y-4">
                                             {cat.items.map((item, index) => (
-                                                <div key={index} className="flex gap-3 group relative p-2 rounded-lg hover:bg-white/5 transition-colors">
+                                                <div key={index} className="flex gap-4 group relative p-2 rounded-lg hover:bg-white/5 transition-colors">
                                                     
-                                                    {/* CONTENIDO TEXTO (IZQUIERDA) */}
-                                                    <div className="flex-1 flex flex-col justify-between">
+                                                    {item.image && (
+                                                        <div className="w-32 h-32 shrink-0 rounded-lg overflow-hidden border border-ritual-muted/20 shadow-sm bg-black/20 self-center">
+                                                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="flex-1 flex flex-col justify-between py-1">
                                                         <div>
                                                             <div className="flex justify-between items-start">
                                                                 {isAdmin ? (
@@ -715,10 +717,8 @@
                                                                 <span className="text-base font-bold text-ritual-accent">${item.price}</span>
                                                             )}
 
-                                                            {/* BOTONES ADMIN ITEM */}
                                                             {isAdmin && (
                                                                 <div className="flex items-center gap-2">
-                                                                    {/* Input de archivo oculto */}
                                                                     <label className="cursor-pointer text-ritual-muted hover:text-ritual-accent transition-colors p-1" title="Subir Foto">
                                                                         <input 
                                                                             type="file" 
@@ -742,13 +742,6 @@
                                                             )}
                                                         </div>
                                                     </div>
-
-                                                    {/* IMAGEN DEL PLATO (DERECHA) */}
-                                                    {item.image && (
-                                                        <div className="w-24 h-24 shrink-0 rounded-lg overflow-hidden border border-ritual-muted/20 shadow-sm bg-black/20">
-                                                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                                                        </div>
-                                                    )}
                                                     
                                                 </div>
                                             ))}
@@ -791,7 +784,7 @@
                         </button>
                     </footer>
 
-                    {/* MODAL CROP (SOLO ADMIN) */}
+                    {/* MODAL CROP */}
                     {showCropModal && (
                         <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center z-[60] p-4 animate-fadeIn">
                             <div className="bg-ritual-card w-full max-w-lg rounded-xl overflow-hidden shadow-2xl border border-ritual-accent/30 flex flex-col max-h-[90vh]">
@@ -801,14 +794,11 @@
                                     </h3>
                                     <button onClick={() => {setShowCropModal(false); setCropImageSrc(null);}} className="text-ritual-muted hover:text-white"><LucideIcon name="X" size={20}/></button>
                                 </div>
-                                
                                 <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center p-4">
-                                    {/* Contenedor imagen para cropper */}
                                     <div className="max-h-[50vh] w-full">
                                         <img ref={imageElementRef} src={cropImageSrc} alt="Crop preview" className="max-w-full block" />
                                     </div>
                                 </div>
-
                                 <div className="p-4 bg-ritual-bg/50 border-t border-ritual-muted/20 flex justify-end gap-3">
                                     <button onClick={() => {setShowCropModal(false); setCropImageSrc(null);}} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-ritual-muted hover:text-white transition-colors">Cancelar</button>
                                     <button onClick={performCrop} className="px-6 py-2 bg-ritual-accent text-white text-xs font-bold uppercase tracking-wider rounded shadow-lg hover:bg-ritual-accent/80 transition-colors flex items-center gap-2">
@@ -828,14 +818,7 @@
                                     <h3 className="text-ritual-text text-xl font-light uppercase tracking-widest">Acceso Admin</h3>
                                 </div>
                                 <form onSubmit={handleLogin} className="space-y-4">
-                                    <input 
-                                        type="password" 
-                                        placeholder="Contraseña"
-                                        className="w-full bg-ritual-bg border border-ritual-muted/50 p-3 rounded text-ritual-text focus:border-ritual-accent outline-none transition-colors text-center tracking-widest placeholder-ritual-muted/50"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        autoFocus
-                                    />
+                                    <input type="password" placeholder="Contraseña" className="w-full bg-ritual-bg border border-ritual-muted/50 p-3 rounded text-ritual-text focus:border-ritual-accent outline-none transition-colors text-center tracking-widest placeholder-ritual-muted/50" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
                                     <div className="flex gap-3 pt-2">
                                         <button type="button" onClick={() => setShowLogin(false)} className="flex-1 py-2 bg-transparent border border-ritual-muted text-ritual-muted rounded hover:bg-white/5 transition-colors uppercase text-xs tracking-wider">Cancelar</button>
                                         <button type="submit" className="flex-1 py-2 bg-ritual-accent text-white font-bold rounded shadow-lg shadow-ritual-accent/20 hover:bg-ritual-accent/90 transition-colors uppercase text-xs tracking-wider">Entrar</button>
@@ -857,11 +840,7 @@
                                 </div>
                                 <div className="p-4 grid grid-cols-1 gap-3">
                                     {THEMES.map(theme => (
-                                        <button 
-                                            key={theme.id}
-                                            onClick={() => changeTheme(theme.id)}
-                                            className={`flex items-center gap-4 p-3 rounded-lg border transition-all group ${menuData.theme === theme.id ? 'border-ritual-accent bg-ritual-accent/10' : 'border-transparent hover:bg-white/5'}`}
-                                        >
+                                        <button key={theme.id} onClick={() => changeTheme(theme.id)} className={`flex items-center gap-4 p-3 rounded-lg border transition-all group ${menuData.theme === theme.id ? 'border-ritual-accent bg-ritual-accent/10' : 'border-transparent hover:bg-white/5'}`}>
                                             <div className="flex gap-1 shrink-0">
                                                 <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{backgroundColor: theme.colors.bg}}></div>
                                                 <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{backgroundColor: theme.colors.card}}></div>
@@ -888,11 +867,7 @@
                                 </div>
                                 <div className="p-6 grid grid-cols-5 gap-4 overflow-y-auto">
                                     {AVAILABLE_ICONS.map(iconName => (
-                                        <button 
-                                            key={iconName}
-                                            onClick={() => updateCategoryIcon(iconName)}
-                                            className="aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border border-ritual-muted/20 hover:bg-ritual-accent/20 hover:border-ritual-accent hover:text-ritual-accent text-ritual-muted transition-all"
-                                        >
+                                        <button key={iconName} onClick={() => updateCategoryIcon(iconName)} className="aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border border-ritual-muted/20 hover:bg-ritual-accent/20 hover:border-ritual-accent hover:text-ritual-accent text-ritual-muted transition-all">
                                             <LucideIcon name={iconName} size={24} />
                                         </button>
                                     ))}
@@ -905,15 +880,14 @@
                      {isAdmin && (
                         <div className="fixed bottom-0 left-0 right-0 bg-ritual-accent/95 backdrop-blur text-white p-3 text-center text-sm font-bold z-40 flex justify-between items-center px-6 shadow-[0_-5px_20px_rgba(0,0,0,0.5)] animate-fadeIn">
                             <div className="flex items-center gap-3">
-                                <button 
-                                    onClick={() => setShowThemeSelector(true)}
-                                    className="bg-black/20 p-2 rounded-full hover:bg-black/40 transition-colors flex items-center gap-2 px-3"
-                                    title="Cambiar Tema Visual"
-                                >
+                                <button onClick={() => setShowThemeSelector(true)} className="bg-black/20 p-2 rounded-full hover:bg-black/40 transition-colors flex items-center gap-2 px-3" title="Cambiar Tema Visual">
                                     <LucideIcon name="Palette" size={16} />
                                     <span className="text-[10px] uppercase tracking-wider">Temas</span>
                                 </button>
-                                <span className="uppercase tracking-wider text-xs hidden sm:inline ml-2 border-l border-white/20 pl-4">Modo Editor Activo</span>
+                                <span className="uppercase tracking-wider text-xs hidden sm:inline ml-2 border-l border-white/20 pl-4 flex items-center gap-2">
+                                    Modo Editor Activo
+                                    {isSaving && <span className="text-ritual-accent text-[9px] animate-pulse">Guardando...</span>}
+                                </span>
                             </div>
                             <button onClick={() => setIsAdmin(false)} className="bg-black/20 px-4 py-1.5 rounded-full hover:bg-black/40 transition-colors uppercase text-[10px] tracking-widest font-bold">Salir</button>
                         </div>
