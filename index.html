@@ -495,7 +495,7 @@
 
                 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
                 const isMobile = window.innerWidth < 768;
-                camera.position.set(0, 0, isMobile ? 16.5 : 9.5);
+                camera.position.set(0, 0, isMobile ? 21.0 : 12.5);
 
                 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
                 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -686,7 +686,7 @@
                     camera.aspect = window.innerWidth / window.innerHeight;
                     camera.updateProjectionMatrix();
                     const isMob = window.innerWidth < 768;
-                    camera.position.z = isMob ? 16.5 : 9.5;
+                    camera.position.z = isMob ? 21.0 : 12.5;
                     renderer.setSize(window.innerWidth, window.innerHeight);
                 };
                 window.addEventListener('resize', handleResize);
